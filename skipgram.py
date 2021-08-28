@@ -93,7 +93,7 @@ class SkipGram(nn.Module):
 
     def get_similar_word(self, query, k=10):
         W = self.features
-        x = W[self.entity2index[query]].unsqueeze(0)
+        x = W[self.vocab.entity2index[query]].unsqueeze(0)
 
         sims = cosine_similarity(x, W).squeeze(0)
         sims_idx = sims.argsort().tolist()
@@ -213,17 +213,4 @@ if __name__ == '__main__':
     num_workers = 8 if torch.cuda.is_available() else 0
     model.fit(iterations = 10, batch_size = 512, num_workers = num_workers, shuffle = True)
 
-
-    # ref : https://frhyme.github.io/machine-learning/node2vec_lib/
-    node_features = model.features.to('cpu')
-    kmeans = KMeans(n_clusters = 5).fit(node_features)
-
-    for n, label in zip(model.vocab.index2entity.values(), kmeans.labels_):
-        G.nodes[n]['kmeans-cluster'] = label
-
-    plt.figure(figsize=(10, 6))
-    nx.draw_kamada_kawai(G,
-                         node_color=[n[1]['kmeans-cluster'] for n in G.nodes(data=True)],
-                         cmap=plt.cm.rainbow,
-                         with_labels=True)
-    plt.show()
+    print(model.get_similar_word('5'))
