@@ -1,18 +1,30 @@
 import time
 from tqdm import tqdm
+import multiprocessing as mp
+from collections import defaultdict
+
 import numpy as np
 import networkx as nx
-from collections import defaultdict
-import multiprocessing as mp
 from gensim.models import Word2Vec
 
 class Node2Vec:
-    WEIGHT_KEY = 'weight'
-    FIRST_STEP_KEY = 'first_step'
-    TRANSITION_PROB_KEY = 'prob'
-    NEIGHBORS_KEY = 'neighbor'
-
-    def __init__(self, graph, p=1, q=1, min_edges=1, dim=128, walk_length=10, iterations=10, num_workers=5):
+    def __init__(self,
+                graph,
+                p = 1,
+                q = 1,
+                min_edges = 1,
+                dim = 128,
+                walk_length = 10,
+                iterations = 10,
+                num_workers = 5):
+        """
+        Parameters
+        ----------
+        p : float
+            return paramter
+        q : float
+            inout parameter
+        """
         self.p, self.q = p, q
         self.min_edges = min_edges
         self.dim = dim
@@ -23,28 +35,31 @@ class Node2Vec:
         self.node2vec_rw_graph = self.precompute_transition_prob(graph)
 
     def precompute_transition_prob(self, graph):
-        """convert graph to node2vec_graph
-        Input:
-            graph : nx.graph
-        Return:
-            node2vec_graph : defaultdict
-            node2vec_graph[src][dst][NEIGHBORS_KEY] : list of neighbors 
-            node2vec_graph[src][dst][WEIGHT_KEY] : np.array of transition weights
+        """convert nx.graph to node2vec_graph
+        Parameters
+        ----------
+        graph : nx.graph
+        
+        Returns
+        -------
+        node2vec_graph : defaultdict
+            node2vec_graph[src]['first_step'] : np.array of init transition weights
+            node2vec_graph[src][dst]['neighbor'] : list of neighbors
+            node2vec_graph[src][dst]['weight'] : np.array of transition weights
         """
         node2vec_graph = defaultdict(dict)
 
         for src in graph.nodes():
 
-            # for curr ~ 안으로 넣을 수 있음.
-            frist_step_weights = [graph[src][dst].get(self.WEIGHT_KEY, 1) for dst in graph[src].keys()]
+            frist_step_weights = [graph[src][dst].get('weight', 1) for dst in graph[src].keys()]
             neighbor_keys = list(graph[src].keys())
 
             if len(neighbor_keys) < self.min_edges:
                 continue
 
-            node2vec_graph[src][self.FIRST_STEP_KEY] = {
-                self.TRANSITION_PROB_KEY: noramlize(frist_step_weights),
-                self.NEIGHBORS_KEY: neighbor_keys
+            node2vec_graph[src]['first_step'] = {
+                'prob': noramlize(frist_step_weights),
+                'neighbor': neighbor_keys
             }
 
             for curr in graph[src]:
@@ -52,7 +67,7 @@ class Node2Vec:
                 transition_weights, neighbor_keys = [], []
 
                 for dst in graph[curr].keys():
-                    weight = graph[curr][dst].get(self.WEIGHT_KEY, 1)
+                    weight = graph[curr][dst].get('weight', 1)
 
                     if src == dst:  # distance = 0
                         weight *= 1 / self.p
@@ -67,25 +82,33 @@ class Node2Vec:
                 normalized_transition_weights = noramlize(transition_weights)
 
                 node2vec_graph[src][curr] = {
-                    self.TRANSITION_PROB_KEY: normalized_transition_weights,
-                    self.NEIGHBORS_KEY: neighbor_keys
+                    'prob': normalized_transition_weights,
+                    'neighbor': neighbor_keys
                 }
 
         return node2vec_graph
 
     def _get_next_node(self, neighbors_with_probs):
-        next_node = np.random.choice(neighbors_with_probs[self.NEIGHBORS_KEY],
-                                     size=1,
-                                     p=neighbors_with_probs[self.TRANSITION_PROB_KEY])
+        next_node = np.random.choice(neighbors_with_probs['neighbor'],
+                                     size = 1,
+                                     p = neighbors_with_probs['prob'])
 
         return next_node[0]
 
     def _random_walk(self, inQueue, outQueue):
+        """generate random walks
+        Parameters
+        ----------
+        inQueue : multiprocessing.Queue
+            list of sources
+        outQueue : multiprocessing.Queue
+            list of random walks
+        """
 
         while True:
             src = inQueue.get()
 
-            init_probs = self.node2vec_rw_graph[src][self.FIRST_STEP_KEY]
+            init_probs = self.node2vec_rw_graph[src]['first_step']
             
             for i in range(self.iterations):
                 first_step = self._get_next_node(init_probs)
@@ -136,14 +159,15 @@ class Node2Vec:
         self._terminate()
 
     def fit(self, **w2v_params):
-        """gensim w2v default settings
-        size = 100
-        window = 5
-        min_count = 5
-        workers = 3
-        sg = 0
-        negative = 5
-        iter = 5
+        """
+        gensim.Word2vec default settings
+            - size = 100
+            - window = 5
+            - min_count = 5
+            - workers = 3
+            - sg = 0
+            - negative = 5
+            - iter = 5
         """
 
         print('Generate walks ...')
